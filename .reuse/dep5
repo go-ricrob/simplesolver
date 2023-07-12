@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: go-ricrob
+Upstream-Contact: stefan.miller_at_sap.com
+Source: https://github.com/go-ricrob
+
+Files: *
+Copyright: 2021-2023 go-ricrob authors and contributors
+License: GPL-3.0-or-later
