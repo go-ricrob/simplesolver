@@ -48,12 +48,32 @@ func TestSolver(t *testing.T) {
 				TargetColor:  task.Blue,
 			},
 		},
+		{
+			task.NoSymbolCheck,
+			&task.Args{
+				TopLeftTile:     "A1F",
+				TopRightTile:    "A4F",
+				BottomLeftTile:  "A3F",
+				BottomRightTile: "A2B",
+
+				YellowRobot: task.Coordinate{X: 12, Y: 15},
+				RedRobot:    task.Coordinate{X: 12, Y: 14},
+				GreenRobot:  task.Coordinate{X: 1, Y: 0},
+				BlueRobot:   task.Coordinate{X: 15, Y: 15},
+				SilverRobot: task.Coordinate{X: -1, Y: -1},
+
+				TargetSymbol: task.Pyramid,
+				TargetColor:  task.Blue,
+			},
+		},
 	}
 
-	for _, test := range tests {
-		if err := test.args.Check(test.flag); err != nil {
-			t.Fatal(err)
+	for i, test := range tests {
+		if i != 0 {
+			if err := test.args.Check(test.flag); err != nil {
+				t.Fatal(err)
+			}
+			solve(task.New(test.args))
 		}
-		solve(task.New(test.args))
 	}
 }

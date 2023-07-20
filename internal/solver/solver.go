@@ -11,7 +11,7 @@ import (
 	"github.com/go-ricrob/simplesolver/internal/packed"
 )
 
-const numCh = 1000
+const numCh = 100000
 
 var numWorker = runtime.NumCPU()
 
@@ -63,12 +63,17 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Runner {
 	}
 }
 
-type nextLevel[P packed.Packable] struct {
+type nextReaderLevel[P packed.Packable] struct {
+	wg       *sync.WaitGroup
+	workerCh chan<- P
+}
+
+type nextWriterLevel[P packed.Packable] struct {
 	wg       *sync.WaitGroup
 	workerCh <-chan P
 }
 
-func (s *solver[P]) worker(no int, states *states[P], wg *sync.WaitGroup, nextLevelCh <-chan *nextLevel[P], solutionCh chan<- struct{}) {
+func (s *solver[P]) writer(states *states[P], wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P]) {
 	defer wg.Done()
 
 	robots := map[Color]Coordinate{}
@@ -85,11 +90,7 @@ func (s *solver[P]) worker(no int, states *states[P], wg *sync.WaitGroup, nextLe
 						state.from = p
 						state.to = packed.PackIdx(p, idx, x, y)
 						state.idx = idx
-						state.isSolution = (state.to[idx] == s.targetCoord) && (color&s.targetColor != 0)
 						states.add(state)
-						if state.isSolution { // could be changed by stateMap
-							solutionCh <- struct{}{}
-						}
 					}
 				}
 			}
@@ -97,51 +98,79 @@ func (s *solver[P]) worker(no int, states *states[P], wg *sync.WaitGroup, nextLe
 		nextLevel.wg.Done()
 	}
 }
-func (s *solver[P]) Run() Resulter {
-	states := newStates[P](s.start)
-	// spin up workers
-	workerWg := new(sync.WaitGroup)
-	workerWg.Add(numWorker)
-	solutionCh := make(chan struct{}, numWorker) // enough space for all workers
 
-	var nextLevelChs []chan *nextLevel[P]
-	for i := 0; i < numWorker; i++ {
-		nextLevelCh := make(chan *nextLevel[P], numCh)
-		go s.worker(i, states, workerWg, nextLevelCh, solutionCh)
-		nextLevelChs = append(nextLevelChs, nextLevelCh)
-	}
+func (s *solver[P]) reader(idx int, states *states[P], wg *sync.WaitGroup, nextLevelCh <-chan *nextReaderLevel[P]) {
+	defer wg.Done()
 
-	for level := 0; ; level++ {
-		workerCh := make(chan P, numCh)
-		nextLevelWg := new(sync.WaitGroup)
-		nextLevelWg.Add(numWorker)
-		nextLevel := &nextLevel[P]{wg: nextLevelWg, workerCh: workerCh}
-		for _, nextLevelCh := range nextLevelChs {
-			nextLevelCh <- nextLevel
-		}
+	numPart := states.pm.NumPart()
 
-		for _, p := range states.source {
-			select {
-			case <-solutionCh:
-				goto done
-			case workerCh <- p:
+	for nextLevel := range nextLevelCh {
+		for j := idx; j < numPart; j += numWorker {
+			for _, p := range states.pm.Source(j) {
+				select {
+				case <-states.solutionCh:
+					goto done
+				case nextLevel.workerCh <- p:
+				}
 			}
 		}
 	done:
-		// wait for level to be finalized
-		close(workerCh)
-		nextLevelWg.Wait()
+		nextLevel.wg.Done()
+	}
+}
 
-		if states.hasSolution {
+func (s *solver[P]) Run() Resulter {
+
+	states := newStates[P](s.start, s.targetColor, s.targetCoord)
+
+	// spin up workers
+	workerWg := new(sync.WaitGroup)
+	workerWg.Add(numWorker * 2)
+
+	nextLevelReaderChs := make([]chan *nextReaderLevel[P], numWorker)
+	nextLevelWriterChs := make([]chan *nextWriterLevel[P], numWorker)
+	for i := 0; i < numWorker; i++ {
+		nextLevelReaderChs[i] = make(chan *nextReaderLevel[P], numCh)
+		go s.reader(i, states, workerWg, nextLevelReaderChs[i])
+
+		nextLevelWriterChs[i] = make(chan *nextWriterLevel[P], numCh)
+		go s.writer(states, workerWg, nextLevelWriterChs[i])
+	}
+
+	for level := 0; ; level++ {
+		nextLevelReaderWg := new(sync.WaitGroup)
+		nextLevelReaderWg.Add(numWorker)
+
+		nextLevelWriterWg := new(sync.WaitGroup)
+		nextLevelWriterWg.Add(numWorker)
+
+		workerChs := make([]chan P, numWorker)
+
+		for i := 0; i < numWorker; i++ {
+			workerChs[i] = make(chan P, numCh)
+			nextLevelWriterChs[i] <- &nextWriterLevel[P]{wg: nextLevelWriterWg, workerCh: workerChs[i]}
+			nextLevelReaderChs[i] <- &nextReaderLevel[P]{wg: nextLevelReaderWg, workerCh: workerChs[i]}
+		}
+
+		nextLevelReaderWg.Wait()
+
+		// wait for level to be finalized
+		for _, workerCh := range workerChs {
+			close(workerCh)
+		}
+		nextLevelWriterWg.Wait()
+
+		if states.hasSolution.Load() {
 			break
 		}
 
-		states.source, states.target = states.target, nil
+		states.pm.SwapTargets()
 		s.task.IncrProgress(5)
 	}
 
-	for _, nextLevelCh := range nextLevelChs {
-		close(nextLevelCh)
+	for i := 0; i < numWorker; i++ {
+		close(nextLevelReaderChs[i])
+		close(nextLevelWriterChs[i])
 	}
 	workerWg.Wait()
 

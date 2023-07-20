@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/go-ricrob/exec/task"
 	"github.com/go-ricrob/simplesolver/internal/packed"
-	"github.com/go-ricrob/simplesolver/solver"
+	"github.com/go-ricrob/simplesolver/internal/solver"
 )
 
 func solve(task *task.Task) {

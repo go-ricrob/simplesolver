@@ -3,12 +3,12 @@ package solver
 import (
 	"errors"
 	"fmt"
-	"log"
+	"sync/atomic"
 
 	"github.com/go-ricrob/exec/task"
 	. "github.com/go-ricrob/game/types"
 	"github.com/go-ricrob/simplesolver/internal/packed"
-	"github.com/go-ricrob/simplesolver/internal/spinlock"
+	"github.com/go-ricrob/simplesolver/internal/partmap"
 	"golang.org/x/exp/slices"
 )
 
@@ -25,23 +25,25 @@ var (
 var errInconsistentState = errors.New("inconsistent state")
 
 type state[P packed.Packable] struct {
-	from, to   P
-	idx        int // robot index
-	isSolution bool
-	found      bool
+	from, to P
+	idx      int // robot index
 }
 
 type states[P packed.Packable] struct {
-	mu             spinlock.Mutex
-	m              map[P]P // to/from map
-	source, target []P
-	hasSolution    bool
-	solutionTo     P // solution to value
+	solutionCh  chan struct{}
+	pm          *partmap.Map[P]
+	hasSolution atomic.Bool
+	solutionTo  P // solution to value
+	targetColor Color
+	targetCoord byte
 }
 
-func newStates[P packed.Packable](start P) *states[P] {
-	var pInit P // initial p
-	return &states[P]{m: map[P]P{start: pInit}, source: []P{start}}
+func newStates[P packed.Packable](startState P, targetColor Color, targetCoord byte) *states[P] {
+	return &states[P]{
+		solutionCh:  make(chan struct{}),
+		targetColor: targetColor,
+		targetCoord: targetCoord,
+		pm:          partmap.New[P](startState, 10000)}
 }
 
 func (m *states[P]) hasTurned(from, to P, idx int) bool {
@@ -67,7 +69,7 @@ func (m *states[P]) hasTurned(from, to P, idx int) bool {
 
 		var ok bool
 		to = from
-		from, ok = m.m[to]
+		from, ok = m.pm.Load(to)
 		if !ok {
 			panic("should never happen")
 		}
@@ -78,31 +80,18 @@ func (m *states[P]) hasTurned(from, to P, idx int) bool {
 }
 
 func (m *states[P]) add(state *state[P]) {
-	m.mu.Lock()
-	if state.isSolution {
-		m.hasSolution = true
-		m.solutionTo = state.to
-		m.m[state.to] = state.from
+	idx := state.idx
+	color := Colors[idx]
+
+	if m.pm.StoreTarget(state.to, state.from) && (state.to[idx] == m.targetCoord) && (color&m.targetColor != 0) {
 		// check if target robot did turn 90° at least once
-		if !m.hasTurned(state.from, state.to, state.idx) {
-			// sorry, no solution...
-			log.Println("no solution")
-			state.isSolution = false
+		if m.hasTurned(state.from, state.to, state.idx) {
+			if m.hasSolution.CompareAndSwap(false, true) {
+				m.solutionTo = state.to
+				close(m.solutionCh)
+			}
 		}
-		m.mu.Unlock()
-		return
 	}
-
-	if _, ok := m.m[state.to]; ok {
-		state.found = true
-		m.mu.Unlock()
-		return
-	}
-
-	state.found = false
-	m.m[state.to] = state.from
-	m.target = append(m.target, state.to)
-	m.mu.Unlock()
 }
 
 func (m *states[P]) moveIdx(from, to P) (int, error) {
@@ -116,7 +105,7 @@ func (m *states[P]) moveIdx(from, to P) (int, error) {
 
 // Moves returns the solver result.
 func (m *states[P]) Moves() (task.Moves, error) {
-	if !m.hasSolution {
+	if !m.hasSolution.Load() {
 		return nil, fmt.Errorf("no solution found")
 	}
 
@@ -124,7 +113,7 @@ func (m *states[P]) Moves() (task.Moves, error) {
 	moves := task.Moves{}
 	to := m.solutionTo
 	for {
-		from, ok := m.m[to]
+		from, ok := m.pm.Load(to)
 		if !ok {
 			panic("should never happen")
 		}
@@ -142,4 +131,4 @@ func (m *states[P]) Moves() (task.Moves, error) {
 }
 
 // NumCalcMove returns the number of calculated moves.
-func (m *states[P]) NumCalcMove() int { return len(m.m) }
+func (m *states[P]) NumCalcMove() int { return m.pm.Size() }
