@@ -131,4 +131,4 @@ func (m *states[P]) Moves() (task.Moves, error) {
 }
 
 // NumCalcMove returns the number of calculated moves.
-func (m *states[P]) NumCalcMove() int { return m.pm.Size() }
+func (m *states[P]) NumCalcMove() int { return m.pm.Len() }

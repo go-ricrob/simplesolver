@@ -11,7 +11,7 @@ import (
 	"github.com/go-ricrob/simplesolver/internal/packed"
 )
 
-const numCh = 100000
+const numCh = 1000
 
 var numWorker = runtime.NumCPU()
 
@@ -125,55 +125,56 @@ func (s *solver[P]) Run() Resulter {
 
 	// spin up workers
 	workerWg := new(sync.WaitGroup)
-	workerWg.Add(numWorker * 2)
+	workerWg.Add(2 * numWorker)
 
-	nextLevelReaderChs := make([]chan *nextReaderLevel[P], numWorker)
-	nextLevelWriterChs := make([]chan *nextWriterLevel[P], numWorker)
+	nextReaderLevelChs := make([]chan *nextReaderLevel[P], numWorker)
+	nextWriterLevelChs := make([]chan *nextWriterLevel[P], numWorker)
 	for i := 0; i < numWorker; i++ {
-		nextLevelReaderChs[i] = make(chan *nextReaderLevel[P], numCh)
-		go s.reader(i, states, workerWg, nextLevelReaderChs[i])
+		nextReaderLevelChs[i] = make(chan *nextReaderLevel[P], numCh)
+		go s.reader(i, states, workerWg, nextReaderLevelChs[i])
 
-		nextLevelWriterChs[i] = make(chan *nextWriterLevel[P], numCh)
-		go s.writer(states, workerWg, nextLevelWriterChs[i])
+		nextWriterLevelChs[i] = make(chan *nextWriterLevel[P], numCh)
+		go s.writer(states, workerWg, nextWriterLevelChs[i])
 	}
 
 	for level := 0; ; level++ {
-		nextLevelReaderWg := new(sync.WaitGroup)
-		nextLevelReaderWg.Add(numWorker)
+		s.task.Level(level)
 
-		nextLevelWriterWg := new(sync.WaitGroup)
-		nextLevelWriterWg.Add(numWorker)
+		nextReaderLevelWg := new(sync.WaitGroup)
+		nextReaderLevelWg.Add(numWorker)
+
+		nextWriterLevelWg := new(sync.WaitGroup)
+		nextWriterLevelWg.Add(numWorker)
 
 		workerChs := make([]chan P, numWorker)
 
 		for i := 0; i < numWorker; i++ {
 			workerChs[i] = make(chan P, numCh)
-			nextLevelWriterChs[i] <- &nextWriterLevel[P]{wg: nextLevelWriterWg, workerCh: workerChs[i]}
-			nextLevelReaderChs[i] <- &nextReaderLevel[P]{wg: nextLevelReaderWg, workerCh: workerChs[i]}
+			nextWriterLevelChs[i] <- &nextWriterLevel[P]{wg: nextWriterLevelWg, workerCh: workerChs[i]}
+			nextReaderLevelChs[i] <- &nextReaderLevel[P]{wg: nextReaderLevelWg, workerCh: workerChs[i]}
 		}
 
-		nextLevelReaderWg.Wait()
+		// wait for readers to be finalized
+		nextReaderLevelWg.Wait()
 
-		// wait for level to be finalized
+		// wait for writers to be finalized
 		for _, workerCh := range workerChs {
 			close(workerCh)
 		}
-		nextLevelWriterWg.Wait()
+		nextWriterLevelWg.Wait()
 
 		if states.hasSolution.Load() {
 			break
 		}
 
-		states.pm.SwapTargets()
-		s.task.IncrProgress(5)
+		states.pm.Swap()
 	}
 
 	for i := 0; i < numWorker; i++ {
-		close(nextLevelReaderChs[i])
-		close(nextLevelWriterChs[i])
+		close(nextReaderLevelChs[i])
+		close(nextWriterLevelChs[i])
 	}
 	workerWg.Wait()
 
-	s.task.SetProgress(100)
 	return states
 }

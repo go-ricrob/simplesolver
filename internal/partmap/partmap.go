@@ -14,12 +14,14 @@ type part[P packed.Packable] struct {
 	source, target []P
 }
 
+// Map represent the partitioned map.
 type Map[P packed.Packable] struct {
 	numPart uint64
 	seed    maphash.Seed
 	parts   []*part[P]
 }
 
+// New creates a new partitioned map instance.
 func New[P packed.Packable](startState P, numPart uint64) *Map[P] {
 	pm := &Map[P]{
 		numPart: numPart,
@@ -37,6 +39,7 @@ func New[P packed.Packable](startState P, numPart uint64) *Map[P] {
 	return pm
 }
 
+// Load reads a map value.
 func (pm *Map[P]) Load(k P) (P, bool) {
 	part := pm.parts[k.MapHash(pm.seed)%pm.numPart]
 	part.mu.Lock()
@@ -45,6 +48,7 @@ func (pm *Map[P]) Load(k P) (P, bool) {
 	return v, ok
 }
 
+// StoreTarget writes a map value if not existent and adds the key to the target list.
 func (pm *Map[P]) StoreTarget(k, v P) bool {
 	part := pm.parts[k.MapHash(pm.seed)%pm.numPart]
 	part.mu.Lock()
@@ -58,7 +62,8 @@ func (pm *Map[P]) StoreTarget(k, v P) bool {
 	return false
 }
 
-func (pm *Map[P]) Size() int {
+// Len returns the number of entries in the map.
+func (pm *Map[P]) Len() int {
 	size := 0
 	for _, part := range pm.parts {
 		size += len(part.m)
@@ -66,11 +71,14 @@ func (pm *Map[P]) Size() int {
 	return size
 }
 
+// NumPart returns the number of partitions.
 func (pm *Map[P]) NumPart() int { return int(pm.numPart) }
 
+// Source returns the source list for partition idx.
 func (pm *Map[P]) Source(idx int) []P { return pm.parts[idx].source }
 
-func (pm *Map[P]) SwapTargets() {
+// Swap swaps the source list with the target list.
+func (pm *Map[P]) Swap() {
 	for _, part := range pm.parts {
 		part.source, part.target = part.target, nil
 	}
