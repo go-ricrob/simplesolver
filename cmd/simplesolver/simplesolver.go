@@ -7,18 +7,14 @@ import (
 )
 
 func solve(task *task.Task) {
-	var runner solver.Runner
+	var s solver.Solver
 	if task.Args.HasSilverRobot() {
-		runner = solver.New[packed.P5](task, true)
+		s = solver.New[packed.P5](task, true)
 	} else {
-		runner = solver.New[packed.P4](task, false)
+		s = solver.New[packed.P4](task, false)
 	}
-	result := runner.Run()
-	moves, err := result.Moves()
-	if err != nil {
-		task.Exit(err)
-	}
-	task.Result(moves, "numCalcMove", result.NumCalcMove())
+	result := s.Run()
+	task.Result(result.Moves, "numCalcMove", result.NumCalcMove)
 }
 
 func main() {

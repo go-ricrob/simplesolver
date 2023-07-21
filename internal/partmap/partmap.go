@@ -3,13 +3,13 @@ package partmap
 
 import (
 	"hash/maphash"
-	"sync"
 
 	"github.com/go-ricrob/simplesolver/internal/packed"
+	"github.com/go-ricrob/simplesolver/internal/spinlock"
 )
 
 type part[P packed.Packable] struct {
-	mu             sync.Mutex
+	mu             spinlock.Mutex
 	m              map[P]P // to/from map
 	source, target []P
 }

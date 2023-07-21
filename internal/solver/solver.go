@@ -1,38 +1,62 @@
-// Package solver implemets a solver algorithm.
 package solver
 
 import (
+	"errors"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-ricrob/exec/task"
 	"github.com/go-ricrob/game/board"
 	. "github.com/go-ricrob/game/types"
 	"github.com/go-ricrob/simplesolver/internal/packed"
+	"github.com/go-ricrob/simplesolver/internal/partmap"
+	"golang.org/x/exp/slices"
 )
 
 const numCh = 1000
 
 var numWorker = runtime.NumCPU()
 
-type Runner interface {
-	Run() Resulter
+type nextReaderLevel[P packed.Packable] struct {
+	wg       *sync.WaitGroup
+	workerCh chan<- P
+}
+
+type nextWriterLevel[P packed.Packable] struct {
+	wg       *sync.WaitGroup
+	workerCh <-chan P
+}
+
+type Result struct {
+	Moves       task.Moves
+	NumCalcMove int
+}
+
+type Solver interface {
+	Run() *Result
 }
 
 var (
-	_ Runner = (*solver[packed.P4])(nil)
-	_ Runner = (*solver[packed.P5])(nil)
+	_ Solver = (*solver[packed.P4])(nil)
+	_ Solver = (*solver[packed.P5])(nil)
 )
+
+var errInconsistentState = errors.New("inconsistent state")
 
 type solver[P packed.Packable] struct {
 	task        *task.Task
 	board       *board.Board
-	start       P
 	targetColor Color
 	targetCoord byte
+
+	solutionCh  chan struct{}
+	pm          *partmap.Map[P]
+	hasSolution atomic.Bool
+	solutionTo  P // solution to value
 }
 
-func New[P packed.Packable](task *task.Task, useSilverRobot bool) Runner {
+func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 	board := board.New(map[board.TilePosition]string{
 		board.TopLeft:     task.Args.TopLeftTile,
 		board.TopRight:    task.Args.TopRightTile,
@@ -57,58 +81,56 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Runner {
 	return &solver[P]{
 		task:        task,
 		board:       board,
-		start:       packed.Pack[P](robots),
 		targetColor: targetColor,
 		targetCoord: byte(x<<4) | byte(y),
+		solutionCh:  make(chan struct{}),
+		pm:          partmap.New[P](packed.Pack[P](robots), 10000),
 	}
 }
 
-type nextReaderLevel[P packed.Packable] struct {
-	wg       *sync.WaitGroup
-	workerCh chan<- P
-}
+func (s *solver[P]) hasTurned(from, to P, idx int) bool {
+	var pInit P
+	var numHorizontal, numVertical int
 
-type nextWriterLevel[P packed.Packable] struct {
-	wg       *sync.WaitGroup
-	workerCh <-chan P
-}
-
-func (s *solver[P]) writer(states *states[P], wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P]) {
-	defer wg.Done()
-
-	robots := map[Color]Coordinate{}
-	state := new(state[P])
-
-	for nextLevel := range nextLevelCh {
-		for p := range nextLevel.workerCh {
-			packed.Unpack(p, robots)
-
-			for idx := 0; idx < len(p); idx++ {
-				color := Colors[idx]
-				for _, move := range s.board.Moves {
-					if x, y, ok := move(robots, color); ok {
-						state.from = p
-						state.to = packed.PackIdx(p, idx, x, y)
-						state.idx = idx
-						states.add(state)
-					}
-				}
-			}
+	addAxis := func(from, to P, idx int) {
+		x1, y1 := packed.UnpackIdx(from, idx)
+		x2, y2 := packed.UnpackIdx(to, idx)
+		if x1 != x2 {
+			numHorizontal++
 		}
-		nextLevel.wg.Done()
+		if y1 != y2 {
+			numVertical++
+		}
+	}
+
+	for {
+		addAxis(from, to, idx)
+		if numHorizontal > 0 && numVertical > 0 {
+			return true
+		}
+
+		var ok bool
+		to = from
+		from, ok = s.pm.Load(to)
+		if !ok {
+			panic("should never happen")
+		}
+		if from == pInit { // first move found
+			return false
+		}
 	}
 }
 
-func (s *solver[P]) reader(idx int, states *states[P], wg *sync.WaitGroup, nextLevelCh <-chan *nextReaderLevel[P]) {
+func (s *solver[P]) reader(idx int, wg *sync.WaitGroup, nextLevelCh <-chan *nextReaderLevel[P]) {
 	defer wg.Done()
 
-	numPart := states.pm.NumPart()
+	numPart := s.pm.NumPart()
 
 	for nextLevel := range nextLevelCh {
 		for j := idx; j < numPart; j += numWorker {
-			for _, p := range states.pm.Source(j) {
+			for _, p := range s.pm.Source(j) {
 				select {
-				case <-states.solutionCh:
+				case <-s.solutionCh:
 					goto done
 				case nextLevel.workerCh <- p:
 				}
@@ -119,10 +141,71 @@ func (s *solver[P]) reader(idx int, states *states[P], wg *sync.WaitGroup, nextL
 	}
 }
 
-func (s *solver[P]) Run() Resulter {
+func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P]) {
+	defer wg.Done()
 
-	states := newStates[P](s.start, s.targetColor, s.targetCoord)
+	robots := map[Color]Coordinate{}
 
+	for nextLevel := range nextLevelCh {
+		for from := range nextLevel.workerCh {
+			packed.Unpack(from, robots)
+
+			for idx := 0; idx < len(from); idx++ {
+				color := Colors[idx]
+				for _, direction := range board.Directions {
+					if x, y, ok := s.board.Move(robots, color, direction); ok {
+						to := packed.PackIdx(from, idx, x, y)
+						if s.pm.StoreTarget(to, from) && (to[idx] == s.targetCoord) && (color&s.targetColor != 0) {
+							// check if target robot did turn 90° at least once
+							if s.hasTurned(from, to, idx) {
+								if s.hasSolution.CompareAndSwap(false, true) {
+									s.solutionTo = to
+									close(s.solutionCh)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		nextLevel.wg.Done()
+	}
+}
+
+func (s *solver[P]) moveIdx(from, to P) int {
+	for i := 0; i < len(from); i++ {
+		if from[i] != to[i] {
+			return i
+		}
+	}
+	panic(errInconsistentState) // should never happen
+}
+
+func (s *solver[P]) moves() task.Moves {
+	if !s.hasSolution.Load() {
+		return nil
+	}
+
+	var pInit P
+	moves := task.Moves{}
+	to := s.solutionTo
+	for {
+		from, ok := s.pm.Load(to)
+		if !ok {
+			panic("should never happen")
+		}
+		if from == pInit { // first move found
+			return moves
+		}
+		idx := s.moveIdx(from, to)
+		x, y := packed.UnpackIdx(to, idx)
+		moves = slices.Insert(moves, 0, &task.Move{To: task.Coordinate{X: x, Y: y}, Color: convertColorOut(Colors[idx])})
+		to = from
+	}
+}
+
+// Run starts the solving algorithm.
+func (s *solver[P]) Run() *Result {
 	// spin up workers
 	workerWg := new(sync.WaitGroup)
 	workerWg.Add(2 * numWorker)
@@ -131,10 +214,10 @@ func (s *solver[P]) Run() Resulter {
 	nextWriterLevelChs := make([]chan *nextWriterLevel[P], numWorker)
 	for i := 0; i < numWorker; i++ {
 		nextReaderLevelChs[i] = make(chan *nextReaderLevel[P], numCh)
-		go s.reader(i, states, workerWg, nextReaderLevelChs[i])
+		go s.reader(i, workerWg, nextReaderLevelChs[i])
 
 		nextWriterLevelChs[i] = make(chan *nextWriterLevel[P], numCh)
-		go s.writer(states, workerWg, nextWriterLevelChs[i])
+		go s.writer(workerWg, nextWriterLevelChs[i])
 	}
 
 	for level := 0; ; level++ {
@@ -163,11 +246,11 @@ func (s *solver[P]) Run() Resulter {
 		}
 		nextWriterLevelWg.Wait()
 
-		if states.hasSolution.Load() {
+		if s.hasSolution.Load() {
 			break
 		}
 
-		states.pm.Swap()
+		s.pm.Swap()
 	}
 
 	for i := 0; i < numWorker; i++ {
@@ -176,5 +259,8 @@ func (s *solver[P]) Run() Resulter {
 	}
 	workerWg.Wait()
 
-	return states
+	return &Result{
+		Moves:       s.moves(),
+		NumCalcMove: s.pm.Len(),
+	}
 }

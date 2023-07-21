@@ -1,6 +1,4 @@
 github.com/go-ricrob/exec v0.0.5 h1:v7xeEghemFER4i+wZ5/+bqJm5G/sLBxiUZ9PqWtiNg0=
 github.com/go-ricrob/exec v0.0.5/go.mod h1:qd++Axncl3ohBCPbfEB7GR0sl/Hx+cVIFdr9nvh6jLY=
-github.com/go-ricrob/game v0.0.2 h1:mP4UCIBEKHGVcxbCvboWzzN9RpT6XR74gKdo2jnWaO4=
-github.com/go-ricrob/game v0.0.2/go.mod h1:zE5dxYxDSBK1vZHyOzEG/C/yk6DNRXMA5UXFuHUUWF0=
 golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 h1:MGwJjxBy0HJshjDNfLsYO8xppfqWlA5ZT9OhtUUhTNw=
 golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1/go.mod h1:FXUEEKJgO7OQYeo8N01OfiKP8RXMtf6e8aTskBGqWdc=
