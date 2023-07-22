@@ -80,6 +80,6 @@ func (pm *Map[P]) Source(idx int) []P { return pm.parts[idx].source }
 // Swap swaps the source list with the target list.
 func (pm *Map[P]) Swap() {
 	for _, part := range pm.parts {
-		part.source, part.target = part.target, nil
+		part.source, part.target = part.target, part.source[:0]
 	}
 }

@@ -2,6 +2,7 @@ package solver
 
 import (
 	"errors"
+	"log"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,10 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-const numCh = 1000
+const (
+	numCh    = 1000
+	maxLevel = 21
+)
 
 var numWorker = runtime.NumCPU()
 
@@ -26,6 +30,7 @@ type nextReaderLevel[P packed.Packable] struct {
 type nextWriterLevel[P packed.Packable] struct {
 	wg       *sync.WaitGroup
 	workerCh <-chan P
+	level    int
 }
 
 type Result struct {
@@ -49,6 +54,8 @@ type solver[P packed.Packable] struct {
 	board       *board.Board
 	targetColor Color
 	targetCoord byte
+
+	minMoves board.MinMoves
 
 	solutionCh  chan struct{}
 	pm          *partmap.Map[P]
@@ -83,6 +90,7 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 		board:       board,
 		targetColor: targetColor,
 		targetCoord: byte(x<<4) | byte(y),
+		minMoves:    board.MinMoves(x, y),
 		solutionCh:  make(chan struct{}),
 		pm:          partmap.New[P](packed.Pack[P](robots), 10000),
 	}
@@ -144,23 +152,29 @@ func (s *solver[P]) reader(idx int, wg *sync.WaitGroup, nextLevelCh <-chan *next
 func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P]) {
 	defer wg.Done()
 
+	// TODO: silver robot is target
+
 	robots := map[Color]Coordinate{}
 
 	for nextLevel := range nextLevelCh {
+		remMoves := maxLevel - nextLevel.level
+		//log.Printf("max level %d this level %d rem moves %d", maxLevel, nextLevel.level, remMoves)
 		for from := range nextLevel.workerCh {
 			packed.Unpack(from, robots)
 
-			for idx := 0; idx < len(from); idx++ {
-				color := Colors[idx]
-				for _, direction := range board.Directions {
-					if x, y, ok := s.board.Move(robots, color, direction); ok {
-						to := packed.PackIdx(from, idx, x, y)
-						if s.pm.StoreTarget(to, from) && (to[idx] == s.targetCoord) && (color&s.targetColor != 0) {
-							// check if target robot did turn 90° at least once
-							if s.hasTurned(from, to, idx) {
-								if s.hasSolution.CompareAndSwap(false, true) {
-									s.solutionTo = to
-									close(s.solutionCh)
+			if s.minMoves.Moves(robots[s.targetColor]) <= remMoves {
+				for idx := 0; idx < len(from); idx++ {
+					color := Colors[idx]
+					for _, direction := range board.Directions {
+						if x, y, ok := s.board.Move(robots, color, direction); ok {
+							to := packed.PackIdx(from, idx, x, y)
+							if s.pm.StoreTarget(to, from) && (to[idx] == s.targetCoord) && (color&s.targetColor != 0) {
+								// check if target robot did turn 90° at least once
+								if s.hasTurned(from, to, idx) {
+									if s.hasSolution.CompareAndSwap(false, true) {
+										s.solutionTo = to
+										close(s.solutionCh)
+									}
 								}
 							}
 						}
@@ -206,6 +220,9 @@ func (s *solver[P]) moves() task.Moves {
 
 // Run starts the solving algorithm.
 func (s *solver[P]) Run() *Result {
+
+	log.Printf("min moves %v", s.minMoves)
+
 	// spin up workers
 	workerWg := new(sync.WaitGroup)
 	workerWg.Add(2 * numWorker)
@@ -220,7 +237,7 @@ func (s *solver[P]) Run() *Result {
 		go s.writer(workerWg, nextWriterLevelChs[i])
 	}
 
-	for level := 0; ; level++ {
+	for level := 0; level < maxLevel; level++ {
 		s.task.Level(level)
 
 		nextReaderLevelWg := new(sync.WaitGroup)
@@ -233,7 +250,7 @@ func (s *solver[P]) Run() *Result {
 
 		for i := 0; i < numWorker; i++ {
 			workerChs[i] = make(chan P, numCh)
-			nextWriterLevelChs[i] <- &nextWriterLevel[P]{wg: nextWriterLevelWg, workerCh: workerChs[i]}
+			nextWriterLevelChs[i] <- &nextWriterLevel[P]{wg: nextWriterLevelWg, workerCh: workerChs[i], level: level}
 			nextReaderLevelChs[i] <- &nextReaderLevel[P]{wg: nextReaderLevelWg, workerCh: workerChs[i]}
 		}
 
