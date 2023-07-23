@@ -33,7 +33,7 @@ func New[P packed.Packable](startState P, numPart uint64) *Map[P] {
 	}
 	// store start state
 	var initState P // initial p
-	part := pm.parts[startState.MapHash(pm.seed)%pm.numPart]
+	part := pm.parts[startState.Hash(pm.seed)%pm.numPart]
 	part.m[startState] = initState
 	part.source = append(part.source, startState)
 	return pm
@@ -41,7 +41,7 @@ func New[P packed.Packable](startState P, numPart uint64) *Map[P] {
 
 // Load reads a map value.
 func (pm *Map[P]) Load(k P) (P, bool) {
-	part := pm.parts[k.MapHash(pm.seed)%pm.numPart]
+	part := pm.parts[k.Hash(pm.seed)%pm.numPart]
 	part.mu.Lock()
 	v, ok := part.m[k]
 	part.mu.Unlock()
@@ -50,7 +50,7 @@ func (pm *Map[P]) Load(k P) (P, bool) {
 
 // StoreTarget writes a map value if not existent and adds the key to the target list.
 func (pm *Map[P]) StoreTarget(k, v P) bool {
-	part := pm.parts[k.MapHash(pm.seed)%pm.numPart]
+	part := pm.parts[k.Hash(pm.seed)%pm.numPart]
 	part.mu.Lock()
 	if _, ok := part.m[k]; !ok {
 		part.m[k] = v

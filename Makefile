@@ -6,6 +6,7 @@ all:
 	@echo "build and test"
 	go build -v ./...
 	go vet ./...
+	golint -set_exit_status=true ./...
 	staticcheck -checks all ./...
 	go test -short ./...
 	@echo "reuse (license) check"
@@ -18,6 +19,9 @@ generate:
 
 #install additional tools
 tools:
+#install linter
+	@echo "install latest go linter version"
+	go install golang.org/x/lint/golint@latest
 #install staticcheck
 	@echo "install latest staticcheck version"
 	go install honnef.co/go/tools/cmd/staticcheck@latest

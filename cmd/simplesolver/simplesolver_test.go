@@ -44,8 +44,7 @@ func TestSolver(t *testing.T) {
 				BlueRobot:   task.Coordinate{X: 13, Y: 11},
 				SilverRobot: task.Coordinate{X: -1, Y: -1},
 
-				TargetSymbol: task.Pyramid,
-				TargetColor:  task.Blue,
+				TargetSymbol: task.BluePyramid,
 			},
 		},
 		{
@@ -62,8 +61,7 @@ func TestSolver(t *testing.T) {
 				BlueRobot:   task.Coordinate{X: 15, Y: 15},
 				SilverRobot: task.Coordinate{X: -1, Y: -1},
 
-				TargetSymbol: task.Pyramid,
-				TargetColor:  task.Blue,
+				TargetSymbol: task.BluePyramid,
 			},
 		},
 	}

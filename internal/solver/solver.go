@@ -1,15 +1,16 @@
+// Package solver implements a simple solver.
 package solver
 
 import (
 	"errors"
-	"log"
 	"runtime"
 	"sync"
 	"sync/atomic"
 
 	"github.com/go-ricrob/exec/task"
 	"github.com/go-ricrob/game/board"
-	. "github.com/go-ricrob/game/types"
+	"github.com/go-ricrob/game/coord"
+	"github.com/go-ricrob/game/types"
 	"github.com/go-ricrob/simplesolver/internal/packed"
 	"github.com/go-ricrob/simplesolver/internal/partmap"
 	"golang.org/x/exp/slices"
@@ -22,6 +23,8 @@ const (
 
 var numWorker = runtime.NumCPU()
 
+var robotColors = []types.Color{types.Yellow, types.Red, types.Green, types.Blue, types.Silver}
+
 type nextReaderLevel[P packed.Packable] struct {
 	wg       *sync.WaitGroup
 	workerCh chan<- P
@@ -33,11 +36,13 @@ type nextWriterLevel[P packed.Packable] struct {
 	level    int
 }
 
+// Result reüresents a solver result.
 type Result struct {
 	Moves       task.Moves
 	NumCalcMove int
 }
 
+// Solver defines a solver interface.
 type Solver interface {
 	Run() *Result
 }
@@ -50,59 +55,82 @@ var (
 var errInconsistentState = errors.New("inconsistent state")
 
 type solver[P packed.Packable] struct {
-	task        *task.Task
-	board       *board.Board
-	targetColor Color
-	targetCoord byte
+	task         *task.Task
+	board        *board.Board
+	targetSymbol board.Symbol
+	targetColor  types.Color
+	targetCoord  byte
+	targetRobot  int
 
-	minMoves board.MinMoves
+	minMoves [board.NumField]int
 
 	solutionCh  chan struct{}
 	pm          *partmap.Map[P]
 	hasSolution atomic.Bool
 	solutionTo  P // solution to value
+
+	moveFn [types.NumDir]func(p P, moveRobot int) (byte, bool)
 }
 
+// New creates a new solver instance.
 func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
-	board := board.New(map[board.TilePosition]string{
+	board := board.New([board.NumTile]string{
 		board.TopLeft:     task.Args.TopLeftTile,
 		board.TopRight:    task.Args.TopRightTile,
 		board.BottomLeft:  task.Args.BottomLeftTile,
 		board.BottomRight: task.Args.BottomRightTile,
 	})
 
-	robots := map[Color]Coordinate{
-		Yellow: Coordinate(task.Args.YellowRobot),
-		Red:    Coordinate(task.Args.RedRobot),
-		Green:  Coordinate(task.Args.GreenRobot),
-		Blue:   Coordinate(task.Args.BlueRobot),
+	//TODO: how to guarantee robot order?
+	robots := []byte{
+		coord.Ctob(task.Args.YellowRobot.X, task.Args.YellowRobot.Y),
+		coord.Ctob(task.Args.RedRobot.X, task.Args.RedRobot.Y),
+		coord.Ctob(task.Args.GreenRobot.X, task.Args.GreenRobot.Y),
+		coord.Ctob(task.Args.BlueRobot.X, task.Args.BlueRobot.Y),
 	}
 	if useSilverRobot {
-		robots[Silver] = Coordinate(task.Args.SilverRobot)
+		robots = append(robots, coord.Ctob(task.Args.SilverRobot.X, task.Args.SilverRobot.X))
 	}
 
-	targetSymbol := convertSymbolIn(task.Args.TargetSymbol)
-	targetColor := convertColorIn(task.Args.TargetColor)
-	x, y := board.TargetCoordinate(targetSymbol, targetColor)
+	targetSymbol, targetColor := convertSymbolIn(task.Args.TargetSymbol)
+	targetCoord := board.TargetCoord(targetSymbol, targetColor)
 
-	return &solver[P]{
-		task:        task,
-		board:       board,
-		targetColor: targetColor,
-		targetCoord: byte(x<<4) | byte(y),
-		minMoves:    board.MinMoves(x, y),
-		solutionCh:  make(chan struct{}),
-		pm:          partmap.New[P](packed.Pack[P](robots), 10000),
+	var targetRobot int
+	// determin target robot index
+	for i, color := range robotColors {
+		if color == targetColor {
+			targetRobot = i
+			break
+		}
 	}
+
+	s := &solver[P]{
+		task:         task,
+		board:        board,
+		targetSymbol: targetSymbol,
+		targetColor:  targetColor,
+		targetCoord:  targetCoord,
+		targetRobot:  targetRobot,
+		minMoves:     board.MinMoves(targetCoord),
+		solutionCh:   make(chan struct{}),
+		pm:           partmap.New[P](packed.SetRobots[P](robots), 10000),
+	}
+
+	s.moveFn[types.North] = s.moveNorth
+	s.moveFn[types.East] = s.moveEast
+	s.moveFn[types.South] = s.moveSouth
+	s.moveFn[types.West] = s.moveWest
+
+	return s
 }
 
-func (s *solver[P]) hasTurned(from, to P, idx int) bool {
+func (s *solver[P]) hasTurned(from, to P, robot int) bool {
 	var pInit P
 	var numHorizontal, numVertical int
 
-	addAxis := func(from, to P, idx int) {
-		x1, y1 := packed.UnpackIdx(from, idx)
-		x2, y2 := packed.UnpackIdx(to, idx)
+	addAxis := func(from, to P, robot int) {
+		x1, y1 := coord.Btoc(from[robot])
+		x2, y2 := coord.Btoc(to[robot])
 		if x1 != x2 {
 			numHorizontal++
 		}
@@ -112,7 +140,7 @@ func (s *solver[P]) hasTurned(from, to P, idx int) bool {
 	}
 
 	for {
-		addAxis(from, to, idx)
+		addAxis(from, to, robot)
 		if numHorizontal > 0 && numVertical > 0 {
 			return true
 		}
@@ -149,28 +177,118 @@ func (s *solver[P]) reader(idx int, wg *sync.WaitGroup, nextLevelCh <-chan *next
 	}
 }
 
-func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P]) {
+func (s *solver[P]) moveNorth(p P, moveRobot int) (byte, bool) {
+	// handle redirects here
+	// field needs to handle redirection as a boarder
+	// routes needs to deliver redirect field coords
+	c := p[moveRobot]
+	x0, y0 := coord.Btoc(c)
+	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.North])
+	for robot := 0; robot < len(p); robot++ {
+		if robot != moveRobot {
+			x, y := coord.Btoc(p[robot])
+			if x == x0 && y > y0 && y <= yt {
+				yt = y - 1
+			}
+		}
+	}
+	if xt == x0 && yt == y0 {
+		return p[moveRobot], false
+	}
+	return coord.Ctob(xt, yt), true
+}
+
+func (s *solver[P]) moveEast(p P, moveRobot int) (byte, bool) {
+	// handle redirects here
+	// field needs to handle redirection as a boarder
+	// routes needs to deliver redirect field coords
+	c := p[moveRobot]
+	x0, y0 := coord.Btoc(c)
+	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.East])
+	for robot := 0; robot < len(p); robot++ {
+		if robot != moveRobot {
+			x, y := coord.Btoc(p[robot])
+			if y == y0 && x > x0 && x <= xt {
+				xt = x - 1
+			}
+		}
+	}
+	if xt == x0 && yt == y0 {
+		return p[moveRobot], false
+	}
+	return coord.Ctob(xt, yt), true
+}
+
+func (s *solver[P]) moveSouth(p P, moveRobot int) (byte, bool) {
+	// handle redirects here
+	// field needs to handle redirection as a boarder
+	// routes needs to deliver redirect field coords
+	c := p[moveRobot]
+	x0, y0 := coord.Btoc(c)
+	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.South])
+	for robot := 0; robot < len(p); robot++ {
+		if robot != moveRobot {
+			x, y := coord.Btoc(p[robot])
+			if x == x0 && y < y0 && y >= yt {
+				yt = y + 1
+			}
+		}
+	}
+	if xt == x0 && yt == y0 {
+		return p[moveRobot], false
+	}
+	return coord.Ctob(xt, yt), true
+}
+
+func (s *solver[P]) moveWest(p P, moveRobot int) (byte, bool) {
+	// handle redirects here
+	// field needs to handle redirection as a boarder
+	// routes needs to deliver redirect field coords
+	c := p[moveRobot]
+	x0, y0 := coord.Btoc(c)
+	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.West])
+	for robot := 0; robot < len(p); robot++ {
+		if robot != moveRobot {
+			x, y := coord.Btoc(p[robot])
+			if y == y0 && x < x0 && x >= xt {
+				xt = x + 1
+			}
+		}
+	}
+	if xt == x0 && yt == y0 {
+		return p[moveRobot], false
+	}
+	return coord.Ctob(xt, yt), true
+}
+
+func (s *solver[P]) checkMinMoveCosmic(p P, remMoves int) bool {
+	for robot := 0; robot < len(p); robot++ {
+		if s.minMoves[p[robot]] <= remMoves {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *solver[P]) checkMinMove(p P, remMoves int) bool {
+	return s.minMoves[p[s.targetRobot]] <= remMoves
+}
+
+func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P], checkMinMove func(p P, remMoves int) bool) {
 	defer wg.Done()
-
-	// TODO: silver robot is target
-
-	robots := map[Color]Coordinate{}
 
 	for nextLevel := range nextLevelCh {
 		remMoves := maxLevel - nextLevel.level
 		//log.Printf("max level %d this level %d rem moves %d", maxLevel, nextLevel.level, remMoves)
 		for from := range nextLevel.workerCh {
-			packed.Unpack(from, robots)
-
-			if s.minMoves.Moves(robots[s.targetColor]) <= remMoves {
-				for idx := 0; idx < len(from); idx++ {
-					color := Colors[idx]
-					for _, direction := range board.Directions {
-						if x, y, ok := s.board.Move(robots, color, direction); ok {
-							to := packed.PackIdx(from, idx, x, y)
-							if s.pm.StoreTarget(to, from) && (to[idx] == s.targetCoord) && (color&s.targetColor != 0) {
+			if checkMinMove(from, remMoves) {
+				for robot := 0; robot < len(from); robot++ {
+					for dir := types.Dir(0); dir < types.NumDir; dir++ {
+						if pos, ok := s.moveFn[dir](from, robot); ok {
+							to := packed.SetRobot(from, robot, byte(pos))
+							if s.pm.StoreTarget(to, from) && (to[robot] == s.targetCoord) && (s.targetSymbol == board.Cosmic || robotColors[robot] == s.targetColor) {
 								// check if target robot did turn 90° at least once
-								if s.hasTurned(from, to, idx) {
+								if s.hasTurned(from, to, robot) {
 									if s.hasSolution.CompareAndSwap(false, true) {
 										s.solutionTo = to
 										close(s.solutionCh)
@@ -186,16 +304,17 @@ func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLev
 	}
 }
 
-func (s *solver[P]) moveIdx(from, to P) int {
-	for i := 0; i < len(from); i++ {
-		if from[i] != to[i] {
-			return i
-		}
-	}
-	panic(errInconsistentState) // should never happen
-}
-
 func (s *solver[P]) moves() task.Moves {
+	robotMoved := func(from, to P) int {
+		for robot := 0; robot < len(from); robot++ {
+			if from[robot] != to[robot] {
+				return robot
+			}
+		}
+		panic(errInconsistentState) // should never happen
+
+	}
+
 	if !s.hasSolution.Load() {
 		return nil
 	}
@@ -211,9 +330,9 @@ func (s *solver[P]) moves() task.Moves {
 		if from == pInit { // first move found
 			return moves
 		}
-		idx := s.moveIdx(from, to)
-		x, y := packed.UnpackIdx(to, idx)
-		moves = slices.Insert(moves, 0, &task.Move{To: task.Coordinate{X: x, Y: y}, Color: convertColorOut(Colors[idx])})
+		moveRobot := robotMoved(from, to)
+		x, y := coord.Btoc(to[moveRobot])
+		moves = slices.Insert(moves, 0, &task.Move{To: task.Coordinate{X: x, Y: y}, Robot: convertRobotOut(robotColors[moveRobot])})
 		to = from
 	}
 }
@@ -221,11 +340,18 @@ func (s *solver[P]) moves() task.Moves {
 // Run starts the solving algorithm.
 func (s *solver[P]) Run() *Result {
 
-	log.Printf("min moves %v", s.minMoves)
+	//log.Printf("min moves %v", s.minMoves)
 
 	// spin up workers
 	workerWg := new(sync.WaitGroup)
 	workerWg.Add(2 * numWorker)
+
+	var checkMinMove func(p P, remMoves int) bool
+	if s.targetSymbol == board.Cosmic {
+		checkMinMove = s.checkMinMoveCosmic
+	} else {
+		checkMinMove = s.checkMinMove
+	}
 
 	nextReaderLevelChs := make([]chan *nextReaderLevel[P], numWorker)
 	nextWriterLevelChs := make([]chan *nextWriterLevel[P], numWorker)
@@ -234,7 +360,7 @@ func (s *solver[P]) Run() *Result {
 		go s.reader(i, workerWg, nextReaderLevelChs[i])
 
 		nextWriterLevelChs[i] = make(chan *nextWriterLevel[P], numCh)
-		go s.writer(workerWg, nextWriterLevelChs[i])
+		go s.writer(workerWg, nextWriterLevelChs[i], checkMinMove)
 	}
 
 	for level := 0; level < maxLevel; level++ {
