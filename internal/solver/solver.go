@@ -36,7 +36,7 @@ type nextWriterLevel[P packed.Packable] struct {
 	level    int
 }
 
-// Result reüresents a solver result.
+// Result represents a solver result.
 type Result struct {
 	Moves       task.Moves
 	NumCalcMove int
@@ -96,7 +96,7 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 	targetCoord := board.TargetCoord(targetSymbol, targetColor)
 
 	var targetRobot int
-	// determin target robot index
+	// determine target robot index
 	for i, color := range robotColors {
 		if color == targetColor {
 			targetRobot = i
@@ -183,7 +183,7 @@ func (s *solver[P]) moveNorth(p P, moveRobot int) (byte, bool) {
 	// routes needs to deliver redirect field coords
 	c := p[moveRobot]
 	x0, y0 := coord.Btoc(c)
-	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.North])
+	yt := coord.Y(s.board.Fields[c].Targets[types.North])
 	for robot := 0; robot < len(p); robot++ {
 		if robot != moveRobot {
 			x, y := coord.Btoc(p[robot])
@@ -192,10 +192,10 @@ func (s *solver[P]) moveNorth(p P, moveRobot int) (byte, bool) {
 			}
 		}
 	}
-	if xt == x0 && yt == y0 {
+	if yt == y0 {
 		return p[moveRobot], false
 	}
-	return coord.Ctob(xt, yt), true
+	return coord.Ctob(x0, yt), true
 }
 
 func (s *solver[P]) moveEast(p P, moveRobot int) (byte, bool) {
@@ -204,7 +204,7 @@ func (s *solver[P]) moveEast(p P, moveRobot int) (byte, bool) {
 	// routes needs to deliver redirect field coords
 	c := p[moveRobot]
 	x0, y0 := coord.Btoc(c)
-	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.East])
+	xt := coord.X(s.board.Fields[c].Targets[types.East])
 	for robot := 0; robot < len(p); robot++ {
 		if robot != moveRobot {
 			x, y := coord.Btoc(p[robot])
@@ -213,10 +213,10 @@ func (s *solver[P]) moveEast(p P, moveRobot int) (byte, bool) {
 			}
 		}
 	}
-	if xt == x0 && yt == y0 {
+	if xt == x0 {
 		return p[moveRobot], false
 	}
-	return coord.Ctob(xt, yt), true
+	return coord.Ctob(xt, y0), true
 }
 
 func (s *solver[P]) moveSouth(p P, moveRobot int) (byte, bool) {
@@ -225,7 +225,7 @@ func (s *solver[P]) moveSouth(p P, moveRobot int) (byte, bool) {
 	// routes needs to deliver redirect field coords
 	c := p[moveRobot]
 	x0, y0 := coord.Btoc(c)
-	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.South])
+	yt := coord.Y(s.board.Fields[c].Targets[types.South])
 	for robot := 0; robot < len(p); robot++ {
 		if robot != moveRobot {
 			x, y := coord.Btoc(p[robot])
@@ -234,10 +234,10 @@ func (s *solver[P]) moveSouth(p P, moveRobot int) (byte, bool) {
 			}
 		}
 	}
-	if xt == x0 && yt == y0 {
+	if yt == y0 {
 		return p[moveRobot], false
 	}
-	return coord.Ctob(xt, yt), true
+	return coord.Ctob(x0, yt), true
 }
 
 func (s *solver[P]) moveWest(p P, moveRobot int) (byte, bool) {
@@ -246,7 +246,7 @@ func (s *solver[P]) moveWest(p P, moveRobot int) (byte, bool) {
 	// routes needs to deliver redirect field coords
 	c := p[moveRobot]
 	x0, y0 := coord.Btoc(c)
-	xt, yt := coord.Btoc(s.board.Fields[c].Targets[types.West])
+	xt := coord.X(s.board.Fields[c].Targets[types.West])
 	for robot := 0; robot < len(p); robot++ {
 		if robot != moveRobot {
 			x, y := coord.Btoc(p[robot])
@@ -255,10 +255,10 @@ func (s *solver[P]) moveWest(p P, moveRobot int) (byte, bool) {
 			}
 		}
 	}
-	if xt == x0 && yt == y0 {
+	if xt == x0 {
 		return p[moveRobot], false
 	}
-	return coord.Ctob(xt, yt), true
+	return coord.Ctob(xt, y0), true
 }
 
 func (s *solver[P]) checkMinMoveCosmic(p P, remMoves int) bool {
