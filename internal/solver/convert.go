@@ -5,47 +5,46 @@ import (
 
 	"github.com/go-ricrob/exec/task"
 	"github.com/go-ricrob/game/board"
-	"github.com/go-ricrob/game/types"
 )
 
-func convertSymbolIn(symbol task.Symbol) (board.Symbol, types.Color) {
+func convertSymbolIn(symbol task.Symbol) (board.Symbol, board.Color) {
 	switch symbol {
 
 	case task.YellowPyramid:
-		return board.Pyramid, types.Yellow
+		return board.Pyramid, board.Yellow
 	case task.YellowStar:
-		return board.Star, types.Yellow
+		return board.Star, board.Yellow
 	case task.YellowMoon:
-		return board.Moon, types.Yellow
+		return board.Moon, board.Yellow
 	case task.YellowSaturn:
-		return board.Saturn, types.Yellow
+		return board.Saturn, board.Yellow
 
 	case task.RedPyramid:
-		return board.Pyramid, types.Red
+		return board.Pyramid, board.Red
 	case task.RedStar:
-		return board.Star, types.Red
+		return board.Star, board.Red
 	case task.RedMoon:
-		return board.Moon, types.Red
+		return board.Moon, board.Red
 	case task.RedSaturn:
-		return board.Saturn, types.Red
+		return board.Saturn, board.Red
 
 	case task.GreenPyramid:
-		return board.Pyramid, types.Green
+		return board.Pyramid, board.Green
 	case task.GreenStar:
-		return board.Star, types.Green
+		return board.Star, board.Green
 	case task.GreenMoon:
-		return board.Moon, types.Green
+		return board.Moon, board.Green
 	case task.GreenSaturn:
-		return board.Saturn, types.Green
+		return board.Saturn, board.Green
 
 	case task.BluePyramid:
-		return board.Pyramid, types.Blue
+		return board.Pyramid, board.Blue
 	case task.BlueStar:
-		return board.Star, types.Blue
+		return board.Star, board.Blue
 	case task.BlueMoon:
-		return board.Moon, types.Blue
+		return board.Moon, board.Blue
 	case task.BlueSaturn:
-		return board.Saturn, types.Blue
+		return board.Saturn, board.Blue
 
 	case task.Cosmic:
 		return board.Cosmic, 0
@@ -56,17 +55,17 @@ func convertSymbolIn(symbol task.Symbol) (board.Symbol, types.Color) {
 	}
 }
 
-func convertRobotOut(color types.Color) task.Robot {
+func convertRobotOut(color board.Color) task.Robot {
 	switch color {
-	case types.Yellow:
+	case board.Yellow:
 		return task.YellowRobot
-	case types.Red:
+	case board.Red:
 		return task.RedRobot
-	case types.Green:
+	case board.Green:
 		return task.GreenRobot
-	case types.Blue:
+	case board.Blue:
 		return task.BlueRobot
-	case types.Silver:
+	case board.Silver:
 		return task.SilverRobot
 	default:
 		panic(fmt.Sprintf("invalid color %s", color))

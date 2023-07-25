@@ -10,7 +10,6 @@ import (
 	"github.com/go-ricrob/exec/task"
 	"github.com/go-ricrob/game/board"
 	"github.com/go-ricrob/game/coord"
-	"github.com/go-ricrob/game/types"
 	"github.com/go-ricrob/simplesolver/internal/packed"
 	"github.com/go-ricrob/simplesolver/internal/partmap"
 	"golang.org/x/exp/slices"
@@ -23,7 +22,7 @@ const (
 
 var numWorker = runtime.NumCPU()
 
-var robotColors = []types.Color{types.Yellow, types.Red, types.Green, types.Blue, types.Silver}
+var robotColors = []board.Color{board.Yellow, board.Red, board.Green, board.Blue, board.Silver}
 
 type nextReaderLevel[P packed.Packable] struct {
 	wg       *sync.WaitGroup
@@ -58,7 +57,7 @@ type solver[P packed.Packable] struct {
 	task         *task.Task
 	board        *board.Board
 	targetSymbol board.Symbol
-	targetColor  types.Color
+	targetColor  board.Color
 	targetCoord  byte
 	targetRobot  int
 
@@ -187,47 +186,41 @@ func (s *solver[P]) calcMoves(from P, robots []coord.XY) {
 
 	for i, c1 := range robots {
 
-		field := s.board.Field(c1.X, c1.Y)
-		north := field.Targets[types.North]
-		east := field.Targets[types.East]
-		south := field.Targets[types.South]
-		west := field.Targets[types.West]
+		field := s.board.Fields[from[i]]
+		north, south, east, west := field.Targets.North, field.Targets.South, field.Targets.East, field.Targets.West
 
 		for j, c2 := range robots {
 			if j != i {
 				// north
-				if c2.X == c1.X && c2.Y > c1.Y && c2.Y <= north {
-					north = c2.Y - 1
+				if c2.X == c1.X && c2.Y > c1.Y && c2.Y <= north.Y {
+					north.Y = c2.Y - 1
 				}
-
-				// east
-				if c2.Y == c1.Y && c2.X > c1.X && c2.X <= east {
-					east = c2.X - 1
-				}
-
 				// south
-				if c2.X == c1.X && c2.Y < c1.Y && c2.Y >= south {
-					south = c2.Y + 1
+				if c2.X == c1.X && c2.Y < c1.Y && c2.Y >= south.Y {
+					south.Y = c2.Y + 1
 				}
-
+				// east
+				if c2.Y == c1.Y && c2.X > c1.X && c2.X <= east.X {
+					east.X = c2.X - 1
+				}
 				// west
-				if c2.Y == c1.Y && c2.X < c1.X && c2.X >= west {
-					west = c2.X + 1
+				if c2.Y == c1.Y && c2.X < c1.X && c2.X >= west.X {
+					west.X = c2.X + 1
 				}
 			}
 		}
 
-		if north != c1.Y {
-			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, north)))
+		if north.Y != c1.Y {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, north.Y)))
 		}
-		if east != c1.X {
-			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(east, c1.Y)))
+		if south.Y != c1.Y {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, south.Y)))
 		}
-		if south != c1.Y {
-			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, south)))
+		if east.X != c1.X {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(east.X, c1.Y)))
 		}
-		if west != c1.X {
-			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(west, c1.Y)))
+		if west.X != c1.X {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(west.X, c1.Y)))
 		}
 	}
 }
