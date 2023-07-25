@@ -68,8 +68,6 @@ type solver[P packed.Packable] struct {
 	pm          *partmap.Map[P]
 	hasSolution atomic.Bool
 	solutionTo  P // solution to value
-
-	moveFn [types.NumDir]func(p P, moveRobot int) (byte, bool)
 }
 
 // New creates a new solver instance.
@@ -104,7 +102,7 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 		}
 	}
 
-	s := &solver[P]{
+	return &solver[P]{
 		task:         task,
 		board:        board,
 		targetSymbol: targetSymbol,
@@ -115,16 +113,9 @@ func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 		solutionCh:   make(chan struct{}),
 		pm:           partmap.New[P](packed.SetRobots[P](robots), 10000),
 	}
-
-	s.moveFn[types.North] = s.moveNorth
-	s.moveFn[types.East] = s.moveEast
-	s.moveFn[types.South] = s.moveSouth
-	s.moveFn[types.West] = s.moveWest
-
-	return s
 }
 
-func (s *solver[P]) hasTurned(from, to P, robot int) bool {
+func (s *solver[P]) hasTurned(robot int, from, to P) bool {
 	var pInit P
 	var numHorizontal, numVertical int
 
@@ -177,88 +168,68 @@ func (s *solver[P]) reader(idx int, wg *sync.WaitGroup, nextLevelCh <-chan *next
 	}
 }
 
-func (s *solver[P]) moveNorth(p P, moveRobot int) (byte, bool) {
-	// handle redirects here
-	// field needs to handle redirection as a boarder
-	// routes needs to deliver redirect field coords
-	c := p[moveRobot]
-	x0, y0 := coord.Btoc(c)
-	yt := coord.Y(s.board.Fields[c].Targets[types.North])
-	for robot := 0; robot < len(p); robot++ {
-		if robot != moveRobot {
-			x, y := coord.Btoc(p[robot])
-			if x == x0 && y > y0 && y <= yt {
-				yt = y - 1
+func (s *solver[P]) storeTarget(robot int, from, to P) {
+	if s.pm.StoreTarget(to, from) && (to[robot] == s.targetCoord) && (s.targetSymbol == board.Cosmic || robotColors[robot] == s.targetColor) {
+		// check if target robot did turn 90° at least once
+		if s.hasTurned(robot, from, to) {
+			if s.hasSolution.CompareAndSwap(false, true) {
+				s.solutionTo = to
+				close(s.solutionCh)
 			}
 		}
 	}
-	if yt == y0 {
-		return p[moveRobot], false
-	}
-	return coord.Ctob(x0, yt), true
 }
 
-func (s *solver[P]) moveEast(p P, moveRobot int) (byte, bool) {
+func (s *solver[P]) calcMoves(from P, robots []coord.XY) {
 	// handle redirects here
 	// field needs to handle redirection as a boarder
 	// routes needs to deliver redirect field coords
-	c := p[moveRobot]
-	x0, y0 := coord.Btoc(c)
-	xt := coord.X(s.board.Fields[c].Targets[types.East])
-	for robot := 0; robot < len(p); robot++ {
-		if robot != moveRobot {
-			x, y := coord.Btoc(p[robot])
-			if y == y0 && x > x0 && x <= xt {
-				xt = x - 1
-			}
-		}
-	}
-	if xt == x0 {
-		return p[moveRobot], false
-	}
-	return coord.Ctob(xt, y0), true
-}
 
-func (s *solver[P]) moveSouth(p P, moveRobot int) (byte, bool) {
-	// handle redirects here
-	// field needs to handle redirection as a boarder
-	// routes needs to deliver redirect field coords
-	c := p[moveRobot]
-	x0, y0 := coord.Btoc(c)
-	yt := coord.Y(s.board.Fields[c].Targets[types.South])
-	for robot := 0; robot < len(p); robot++ {
-		if robot != moveRobot {
-			x, y := coord.Btoc(p[robot])
-			if x == x0 && y < y0 && y >= yt {
-				yt = y + 1
-			}
-		}
-	}
-	if yt == y0 {
-		return p[moveRobot], false
-	}
-	return coord.Ctob(x0, yt), true
-}
+	for i, c1 := range robots {
 
-func (s *solver[P]) moveWest(p P, moveRobot int) (byte, bool) {
-	// handle redirects here
-	// field needs to handle redirection as a boarder
-	// routes needs to deliver redirect field coords
-	c := p[moveRobot]
-	x0, y0 := coord.Btoc(c)
-	xt := coord.X(s.board.Fields[c].Targets[types.West])
-	for robot := 0; robot < len(p); robot++ {
-		if robot != moveRobot {
-			x, y := coord.Btoc(p[robot])
-			if y == y0 && x < x0 && x >= xt {
-				xt = x + 1
+		field := s.board.Field(c1.X, c1.Y)
+		north := field.Targets[types.North]
+		east := field.Targets[types.East]
+		south := field.Targets[types.South]
+		west := field.Targets[types.West]
+
+		for j, c2 := range robots {
+			if j != i {
+				// north
+				if c2.X == c1.X && c2.Y > c1.Y && c2.Y <= north {
+					north = c2.Y - 1
+				}
+
+				// east
+				if c2.Y == c1.Y && c2.X > c1.X && c2.X <= east {
+					east = c2.X - 1
+				}
+
+				// south
+				if c2.X == c1.X && c2.Y < c1.Y && c2.Y >= south {
+					south = c2.Y + 1
+				}
+
+				// west
+				if c2.Y == c1.Y && c2.X < c1.X && c2.X >= west {
+					west = c2.X + 1
+				}
 			}
 		}
+
+		if north != c1.Y {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, north)))
+		}
+		if east != c1.X {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(east, c1.Y)))
+		}
+		if south != c1.Y {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(c1.X, south)))
+		}
+		if west != c1.X {
+			s.storeTarget(i, from, packed.SetRobot(from, i, coord.Ctob(west, c1.Y)))
+		}
 	}
-	if xt == x0 {
-		return p[moveRobot], false
-	}
-	return coord.Ctob(xt, y0), true
 }
 
 func (s *solver[P]) checkMinMoveCosmic(p P, remMoves int) bool {
@@ -277,27 +248,16 @@ func (s *solver[P]) checkMinMove(p P, remMoves int) bool {
 func (s *solver[P]) writer(wg *sync.WaitGroup, nextLevelCh <-chan *nextWriterLevel[P], checkMinMove func(p P, remMoves int) bool) {
 	defer wg.Done()
 
+	var p P
+	var robots = make([]coord.XY, len(p))
+
 	for nextLevel := range nextLevelCh {
 		remMoves := maxLevel - nextLevel.level
 		//log.Printf("max level %d this level %d rem moves %d", maxLevel, nextLevel.level, remMoves)
 		for from := range nextLevel.workerCh {
 			if checkMinMove(from, remMoves) {
-				for robot := 0; robot < len(from); robot++ {
-					for dir := types.Dir(0); dir < types.NumDir; dir++ {
-						if pos, ok := s.moveFn[dir](from, robot); ok {
-							to := packed.SetRobot(from, robot, byte(pos))
-							if s.pm.StoreTarget(to, from) && (to[robot] == s.targetCoord) && (s.targetSymbol == board.Cosmic || robotColors[robot] == s.targetColor) {
-								// check if target robot did turn 90° at least once
-								if s.hasTurned(from, to, robot) {
-									if s.hasSolution.CompareAndSwap(false, true) {
-										s.solutionTo = to
-										close(s.solutionCh)
-									}
-								}
-							}
-						}
-					}
-				}
+				packed.GetRobots(from, robots) // unpack only once and reuse robots
+				s.calcMoves(from, robots)
 			}
 		}
 		nextLevel.wg.Done()

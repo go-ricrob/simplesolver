@@ -3,6 +3,8 @@ package packed
 
 import (
 	"hash/maphash"
+
+	"github.com/go-ricrob/game/coord"
 )
 
 // Packable interface defines P4 and P5 contraints as packable data types.
@@ -29,8 +31,15 @@ func SetRobot[P Packable](p P, robot int, b byte) P { p[robot] = b; return p }
 // SetRobots returns a packed representation of robots.
 func SetRobots[P Packable](robots []byte) P {
 	var p P
-	for robot := 0; robot < len(p); robot++ {
-		p[robot] = robots[robot]
+	for i := 0; i < len(p); i++ {
+		p[i] = robots[i]
 	}
 	return p
+}
+
+// GetRobots stores the packed representation into the robots slice.
+func GetRobots[P Packable](p P, robots []coord.XY) {
+	for i := 0; i < len(p); i++ {
+		robots[i].X, robots[i].Y = coord.Btoc(p[i])
+	}
 }
