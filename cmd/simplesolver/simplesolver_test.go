@@ -27,11 +27,9 @@ func TestSolver(t *testing.T) {
 	}
 
 	tests := []struct {
-		flag int
 		args *task.Args
 	}{
 		{
-			task.NoSymbolCheck,
 			&task.Args{
 				TopLeftTile:     "A3F",
 				TopRightTile:    "A1B",
@@ -45,10 +43,11 @@ func TestSolver(t *testing.T) {
 				SilverRobot: task.Coordinate{X: -1, Y: -1},
 
 				TargetSymbol: task.BluePyramid,
+
+				CheckRobotOnSymbol: false,
 			},
 		},
 		{
-			task.NoSymbolCheck,
 			&task.Args{
 				TopLeftTile:     "A1F",
 				TopRightTile:    "A4F",
@@ -62,13 +61,15 @@ func TestSolver(t *testing.T) {
 				SilverRobot: task.Coordinate{X: -1, Y: -1},
 
 				TargetSymbol: task.BluePyramid,
+
+				CheckRobotOnSymbol: false,
 			},
 		},
 	}
 
 	for i, test := range tests {
 		if i != 0 {
-			if err := test.args.Check(test.flag); err != nil {
+			if err := test.args.Check(); err != nil {
 				t.Fatal(err)
 			}
 			solve(task.New(test.args))
