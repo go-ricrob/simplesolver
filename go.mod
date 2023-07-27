@@ -3,7 +3,7 @@ module github.com/go-ricrob/simplesolver
 go 1.20
 
 require (
-	github.com/go-ricrob/exec v0.0.8
+	github.com/go-ricrob/exec v0.0.9
 	github.com/go-ricrob/game v0.0.6
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
 )

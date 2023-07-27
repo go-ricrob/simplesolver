@@ -8,7 +8,7 @@ import (
 
 func solve(task *task.Task) {
 	var s solver.Solver
-	if task.Args.HasSilverRobot() {
+	if task.Args.Robots.HasSilver() {
 		s = solver.New[packed.P5](task, true)
 	} else {
 		s = solver.New[packed.P4](task, false)

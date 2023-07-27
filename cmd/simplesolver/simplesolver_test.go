@@ -6,21 +6,6 @@ import (
 	"github.com/go-ricrob/exec/task"
 )
 
-/*
-	complexBoard = map[types.TilePosition]string{
-			types.TopLeft:      {SetID: 'A', TileNo: 3, Front: true},
-			common.TopRight:    {SetID: 'A', TileNo: 1, Front: false},
-			common.BottomRight: {SetID: 'A', TileNo: 4, Front: true},
-			common.BottomLeft:  {SetID: 'A', TileNo: 2, Front: false},
-		},
-			map[common.Color]common.Coordinate{
-				common.Yellow: {X: 15, Y: 0},
-				common.Red:    {X: 14, Y: 2},
-				common.Green:  {X: 1, Y: 13},
-				common.Blue:   {X: 13, Y: 11},
-			},
-			common.Targets[common.TnBluePyramid],
-*/
 func TestSolver(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping long running solves")
@@ -31,47 +16,48 @@ func TestSolver(t *testing.T) {
 	}{
 		{
 			&task.Args{
-				TopLeftTile:     "A3F",
-				TopRightTile:    "A1B",
-				BottomLeftTile:  "A2B",
-				BottomRightTile: "A4F",
+				Tiles: task.Tiles{
+					TopLeft:     "A3F",
+					TopRight:    "A1B",
+					BottomLeft:  "A2B",
+					BottomRight: "A4F",
+				},
 
-				YellowRobot: task.Coordinate{X: 15, Y: 0},
-				RedRobot:    task.Coordinate{X: 14, Y: 2},
-				GreenRobot:  task.Coordinate{X: 1, Y: 13},
-				BlueRobot:   task.Coordinate{X: 13, Y: 11},
-				SilverRobot: task.Coordinate{X: -1, Y: -1},
+				Robots: task.Robots{
+					Yellow: task.Coordinate{X: 15, Y: 0},
+					Red:    task.Coordinate{X: 14, Y: 2},
+					Green:  task.Coordinate{X: 1, Y: 13},
+					Blue:   task.Coordinate{X: 13, Y: 11},
+					Silver: task.Coordinate{X: -1, Y: -1},
+				},
 
 				TargetSymbol: task.BluePyramid,
-
-				CheckRobotOnSymbol: false,
 			},
 		},
 		{
 			&task.Args{
-				TopLeftTile:     "A1F",
-				TopRightTile:    "A4F",
-				BottomLeftTile:  "A3F",
-				BottomRightTile: "A2B",
+				Tiles: task.Tiles{
+					TopLeft:     "A1F",
+					TopRight:    "A4F",
+					BottomLeft:  "A3F",
+					BottomRight: "A2B",
+				},
 
-				YellowRobot: task.Coordinate{X: 12, Y: 15},
-				RedRobot:    task.Coordinate{X: 12, Y: 14},
-				GreenRobot:  task.Coordinate{X: 1, Y: 0},
-				BlueRobot:   task.Coordinate{X: 15, Y: 15},
-				SilverRobot: task.Coordinate{X: -1, Y: -1},
+				Robots: task.Robots{
+					Yellow: task.Coordinate{X: 12, Y: 15},
+					Red:    task.Coordinate{X: 12, Y: 14},
+					Green:  task.Coordinate{X: 1, Y: 0},
+					Blue:   task.Coordinate{X: 15, Y: 15},
+					Silver: task.Coordinate{X: -1, Y: -1},
+				},
 
 				TargetSymbol: task.BluePyramid,
-
-				CheckRobotOnSymbol: false,
 			},
 		},
 	}
 
 	for i, test := range tests {
 		if i != 0 {
-			if err := test.args.Check(); err != nil {
-				t.Fatal(err)
-			}
 			solve(task.New(test.args))
 		}
 	}

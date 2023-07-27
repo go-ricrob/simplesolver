@@ -72,21 +72,21 @@ type solver[P packed.Packable] struct {
 // New creates a new solver instance.
 func New[P packed.Packable](task *task.Task, useSilverRobot bool) Solver {
 	board := board.New([board.NumTile]string{
-		board.TopLeft:     task.Args.TopLeftTile,
-		board.TopRight:    task.Args.TopRightTile,
-		board.BottomLeft:  task.Args.BottomLeftTile,
-		board.BottomRight: task.Args.BottomRightTile,
+		board.TopLeft:     task.Args.Tiles.TopLeft,
+		board.TopRight:    task.Args.Tiles.TopRight,
+		board.BottomLeft:  task.Args.Tiles.BottomLeft,
+		board.BottomRight: task.Args.Tiles.BottomRight,
 	})
 
 	//TODO: how to guarantee robot order?
 	robots := []byte{
-		coord.Ctob(task.Args.YellowRobot.X, task.Args.YellowRobot.Y),
-		coord.Ctob(task.Args.RedRobot.X, task.Args.RedRobot.Y),
-		coord.Ctob(task.Args.GreenRobot.X, task.Args.GreenRobot.Y),
-		coord.Ctob(task.Args.BlueRobot.X, task.Args.BlueRobot.Y),
+		coord.Ctob(task.Args.Robots.Yellow.X, task.Args.Robots.Yellow.Y),
+		coord.Ctob(task.Args.Robots.Red.X, task.Args.Robots.Red.Y),
+		coord.Ctob(task.Args.Robots.Green.X, task.Args.Robots.Green.Y),
+		coord.Ctob(task.Args.Robots.Blue.X, task.Args.Robots.Blue.Y),
 	}
 	if useSilverRobot {
-		robots = append(robots, coord.Ctob(task.Args.SilverRobot.X, task.Args.SilverRobot.X))
+		robots = append(robots, coord.Ctob(task.Args.Robots.Silver.X, task.Args.Robots.Silver.X))
 	}
 
 	targetSymbol, targetColor := convertSymbolIn(task.Args.TargetSymbol)
