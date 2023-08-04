@@ -16,3 +16,7 @@
 
 # Executables
 cmd/simplesolver/simplesolver
+
+# Others
+.DS_Store
+
