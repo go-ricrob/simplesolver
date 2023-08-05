@@ -16,14 +16,14 @@ func TestSolver(t *testing.T) {
 	}{
 		{
 			&task.Args{
-				Tiles: task.Tiles{
+				Tiles: &task.Tiles{
 					TopLeft:     "A3F",
 					TopRight:    "A1B",
 					BottomLeft:  "A2B",
 					BottomRight: "A4F",
 				},
 
-				Robots: task.Robots{
+				Robots: &task.Robots{
 					Yellow: task.Coordinate{X: 15, Y: 0},
 					Red:    task.Coordinate{X: 14, Y: 2},
 					Green:  task.Coordinate{X: 1, Y: 13},
@@ -36,14 +36,14 @@ func TestSolver(t *testing.T) {
 		},
 		{
 			&task.Args{
-				Tiles: task.Tiles{
+				Tiles: &task.Tiles{
 					TopLeft:     "A1F",
 					TopRight:    "A4F",
 					BottomLeft:  "A3F",
 					BottomRight: "A2B",
 				},
 
-				Robots: task.Robots{
+				Robots: &task.Robots{
 					Yellow: task.Coordinate{X: 12, Y: 15},
 					Red:    task.Coordinate{X: 12, Y: 14},
 					Green:  task.Coordinate{X: 1, Y: 0},

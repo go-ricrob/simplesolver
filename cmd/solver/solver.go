@@ -18,7 +18,7 @@ func solve(task *task.Task) {
 }
 
 func main() {
-	task, err := task.NewFlag()
+	task, err := task.NewFromFlag()
 	if err != nil {
 		task.Exit(err)
 	}
