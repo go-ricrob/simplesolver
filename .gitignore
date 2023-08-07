@@ -15,7 +15,7 @@
 # vendor/
 
 # Executables
-cmd/simplesolver/solver
+cmd/solver/solver
 
 # Others
 .DS_Store
