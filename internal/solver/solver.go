@@ -4,6 +4,7 @@ package solver
 import (
 	"errors"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/go-ricrob/game/coord"
 	"github.com/go-ricrob/simplesolver/internal/packed"
 	"github.com/go-ricrob/simplesolver/internal/partmap"
-	"golang.org/x/exp/slices"
 )
 
 const (
